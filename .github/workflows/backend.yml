@@ -62,7 +62,8 @@ jobs:
             set -e
             APP_DIR=/home/ec2-user/app
             REPO_NAME=Java-springboot-project
-            REPO_URL=https://github.com/CloudTechDevOps/Java-springboot-project.git
+            REPO_URL=https://github.com/akramibm/Java-springboot-project-updated.git
+            
             mkdir -p $APP_DIR
             cd $APP_DIR
             if [ -d "$REPO_NAME/.git" ]; then
