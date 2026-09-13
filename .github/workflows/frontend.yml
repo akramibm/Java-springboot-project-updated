@@ -61,7 +61,7 @@ jobs:
 
             APP_DIR=/home/ec2-user/front
             REPO_NAME=Java-springboot-project
-            REPO_URL=https://github.com/CloudTechDevOps/Java-springboot-project.git
+            REPO_URL=https://github.com/akramibm/Java-springboot-project-updated.git
 
             echo "🚀 Starting deployment..."
 
@@ -97,9 +97,9 @@ jobs:
 
             [Service]
             User=ec2-user
-            WorkingDirectory=/home/ec2-user/front/Java-springboot-project/frontend
+            WorkingDirectory=/home/ec2-user/front/Java-springboot-project-updated/frontend
 
-            ExecStart=/bin/bash -c 'source /home/ec2-user/front/Java-springboot-project/frontend/venv/bin/activate && streamlit run app.py --server.port=8501 --server.address=0.0.0.0'
+            ExecStart=/bin/bash -c 'source /home/ec2-user/front/Java-springboot-project-updated/frontend/venv/bin/activate && streamlit run app.py --server.port=8501 --server.address=0.0.0.0'
 
             Environment=API_URL=http://localhost:8084
 
