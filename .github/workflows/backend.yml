@@ -6,11 +6,11 @@ on:
     types:
       - completed
   push:
-    # branches:
-    #   - main
-    # paths:
-    #   - 'backend/**'
-    #   - '.github/workflows/backend.yml'
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend.yml'
   workflow_dispatch:
 
 permissions:
@@ -76,7 +76,7 @@ jobs:
             --parameters 'commands=[
               "mkdir -p /opt/backend /opt/config",
               "chown -R ubuntu:ubuntu /opt/backend /opt/config",
-              "which java || apt-get update -y && apt-get install -y openjdk-17-jdk",
+              "which java || (apt-get update -y && apt-get install -y openjdk-17-jdk)",
               "aws s3 cp s3://${{ steps.get-bucket.outputs.bucket }}/backend/datastore-0.0.7.jar /opt/backend/datastore-0.0.7.jar",
               "chown ubuntu:ubuntu /opt/backend/datastore-0.0.7.jar",
               "cat << '\''SERVICE'\'' > /etc/systemd/system/backend.service
