@@ -148,7 +148,7 @@ resource "aws_s3_bucket" "deploy_artifacts" {
 # -----------------------------------------------------------------------------
 resource "aws_security_group" "web_sg" {
   name        = "app-server-sg"
-  description = "HTTP and application ports - Zero Open SSH Ports"
+  description = "HTTP and internal services - Zero SSH Ports"
   vpc_id      = aws_vpc.main.id
 
   ingress {
@@ -181,11 +181,11 @@ resource "aws_security_group" "web_sg" {
 
 resource "aws_security_group" "rds_sg" {
   name        = "rds-mysql-sg"
-  description = "Allow MySQL strictly from app EC2 security group"
+  description = "MySQL access restricted to EC2 app instances"
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description     = "MySQL from EC2 App"
+    description     = "MySQL from App Security Group"
     from_port       = 3306
     to_port         = 3306
     protocol        = "tcp"
@@ -205,14 +205,18 @@ resource "aws_security_group" "rds_sg" {
 }
 
 # -----------------------------------------------------------------------------
-# RDS MYSQL DATABASE
+# RDS MYSQL (USES name_prefix TO PREVENT SUBNET GROUP COLLISIONS)
 # -----------------------------------------------------------------------------
 resource "aws_db_subnet_group" "rds_subnets" {
-  name       = "three-tier-db-subnet-group"
-  subnet_ids = aws_subnet.private[*].id
+  name_prefix = "three-tier-db-sn-"
+  subnet_ids  = aws_subnet.private[*].id
 
   tags = {
     Name = "three-tier-db-subnet-group"
+  }
+
+  lifecycle {
+    create_before_destroy = true
   }
 }
 
@@ -234,10 +238,10 @@ resource "aws_db_instance" "mysql" {
 }
 
 # -----------------------------------------------------------------------------
-# IAM ROLE FOR EC2 (SSM AGENT + S3 ACCESS)
+# IAM ROLE (USES name_prefix TO PREVENT 409 EntityAlreadyExists)
 # -----------------------------------------------------------------------------
 resource "aws_iam_role" "ec2_app_role" {
-  name = "three-tier-ec2-app-role"
+  name_prefix = "three-tier-ec2-"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -260,14 +264,14 @@ resource "aws_iam_role_policy_attachment" "ssm_read" {
 }
 
 resource "aws_iam_role_policy" "s3_pull_artifacts" {
-  name = "ec2-s3-pull-artifacts"
-  role = aws_iam_role.ec2_app_role.id
+  name_prefix = "ec2-s3-pull-"
+  role        = aws_iam_role.ec2_app_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Action = ["s3:GetObject", "s3:ListBucket"]
-      Effect = "Allow"
+      Action   = ["s3:GetObject", "s3:ListBucket"]
+      Effect   = "Allow"
       Resource = [
         aws_s3_bucket.deploy_artifacts.arn,
         "${aws_s3_bucket.deploy_artifacts.arn}/*"
@@ -277,19 +281,19 @@ resource "aws_iam_role_policy" "s3_pull_artifacts" {
 }
 
 resource "aws_iam_instance_profile" "app_profile" {
-  name = "three-tier-app-instance-profile"
-  role = aws_iam_role.ec2_app_role.name
+  name_prefix = "three-tier-app-"
+  role        = aws_iam_role.ec2_app_role.name
 }
 
 # -----------------------------------------------------------------------------
 # EC2 INSTANCE (MANAGED VIA AWS SYSTEMS MANAGER)
 # -----------------------------------------------------------------------------
 resource "aws_instance" "app_server" {
-  ami                    = data.aws_ami.ubuntu.id
-  instance_type          = var.instance_type
-  subnet_id              = aws_subnet.public[0].id
+  ami                  = data.aws_ami.ubuntu.id
+  instance_type        = var.instance_type
+  subnet_id            = aws_subnet.public[0].id
   vpc_security_group_ids = [aws_security_group.web_sg.id]
-  iam_instance_profile   = aws_iam_instance_profile.app_profile.name
+  iam_instance_profile = aws_iam_instance_profile.app_profile.name
 
   tags = {
     Name = "three-tier-app-server"
@@ -300,7 +304,6 @@ resource "aws_instance" "app_server" {
               #!/bin/bash
               set -e
 
-              # Base system dependencies
               apt-get update -y
               apt-get install -y openjdk-17-jdk python3 python3-pip python3-venv nginx awscli jq
               snap install amazon-ssm-agent --classic || systemctl enable amazon-ssm-agent
@@ -309,7 +312,7 @@ resource "aws_instance" "app_server" {
               mkdir -p /opt/backend /opt/frontend /opt/config
               chown -R ubuntu:ubuntu /opt/backend /opt/frontend /opt/config
 
-              # Nginx reverse proxy configuration
+              # Nginx Reverse Proxy
               cat << 'NGINX' > /etc/nginx/sites-available/default
               server {
                   listen 80 default_server;
@@ -330,7 +333,7 @@ resource "aws_instance" "app_server" {
               NGINX
               systemctl restart nginx
 
-              # Backend service setup
+              # Backend Unit
               cat << 'SERVICE' > /etc/systemd/system/backend.service
               [Unit]
               Description=Spring Boot Zero-Touch Backend
@@ -349,7 +352,7 @@ resource "aws_instance" "app_server" {
               WantedBy=multi-user.target
               SERVICE
 
-              # Frontend service setup
+              # Frontend Unit
               cat << 'SERVICE' > /etc/systemd/system/frontend.service
               [Unit]
               Description=Python Frontend Service
@@ -373,18 +376,20 @@ resource "aws_instance" "app_server" {
 }
 
 # -----------------------------------------------------------------------------
-# SSM PARAMETERS (READABLE BY EC2 AND GITHUB ACTIONS)
+# SSM PARAMETERS (overwrite = true PREVENTS ParameterAlreadyExists)
 # -----------------------------------------------------------------------------
 resource "aws_ssm_parameter" "db_url" {
-  name  = "/app/db_url"
-  type  = "String"
-  value = "jdbc:mysql://${aws_db_instance.mysql.endpoint}/${aws_db_instance.mysql.db_name}?useSSL=false&allowPublicKeyRetrieval=true"
+  name      = "/app/db_url"
+  type      = "String"
+  value     = "jdbc:mysql://${aws_db_instance.mysql.endpoint}/${aws_db_instance.mysql.db_name}?useSSL=false&allowPublicKeyRetrieval=true"
+  overwrite = true
 }
 
 resource "aws_ssm_parameter" "artifact_bucket" {
-  name  = "/app/artifact_bucket"
-  type  = "String"
-  value = aws_s3_bucket.deploy_artifacts.bucket
+  name      = "/app/artifact_bucket"
+  type      = "String"
+  value     = aws_s3_bucket.deploy_artifacts.bucket
+  overwrite = true
 }
 
 # -----------------------------------------------------------------------------

@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  id-token: write   # AWS OIDC STS token exchange
+  id-token: write
   contents: read
 
 jobs:

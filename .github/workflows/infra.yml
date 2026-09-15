@@ -6,7 +6,7 @@ on:
   #     - main
   #   paths:
   #     - 'terraform-infra/**'
-  #     - '.github/workflows/**'
+  #     - '.github/workflows/infra.yml'
   workflow_dispatch:
 
 permissions:
