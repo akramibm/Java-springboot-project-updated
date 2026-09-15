@@ -62,10 +62,10 @@ jobs:
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --comment "Zero-touch Streamlit websocket and Nginx configuration" \
+            --comment "Zero-touch Streamlit frontend deployment" \
             --parameters "commands=[
               \"which python3 &>/dev/null || (apt-get update -y && apt-get install -y python3 python3-pip python3-venv nginx)\",
-              \"printf 'map \\$http_upgrade \\$connection_upgrade {\\n    default upgrade;\\n    \\\\'\\\\\\' close;\\n}\\n\\nserver {\\n    listen 80 default_server;\\n    listen [::]:80 default_server;\\n\\n    location / {\\n        proxy_pass http://127.0.0.1:5000;\\n        proxy_http_version 1.1;\\n        proxy_set_header Upgrade \\$http_upgrade;\\n        proxy_set_header Connection \\$connection_upgrade;\\n        proxy_set_header Host \\$host;\\n        proxy_set_header X-Real-IP \\$remote_addr;\\n        proxy_set_header X-Forwarded-For \\$proxy_add_x_forwarded_for;\\n        proxy_set_header X-Forwarded-Proto \\$scheme;\\n        proxy_buffering off;\\n        proxy_read_timeout 86400s;\\n        proxy_send_timeout 86400s;\\n    }\\n\\n    location ^~ /_stcore/stream {\\n        proxy_pass http://127.0.0.1:5000/_stcore/stream;\\n        proxy_http_version 1.1;\\n        proxy_set_header Upgrade \\$http_upgrade;\\n        proxy_set_header Connection \\$connection_upgrade;\\n        proxy_set_header Host \\$host;\\n        proxy_buffering off;\\n        proxy_read_timeout 86400s;\\n        proxy_send_timeout 86400s;\\n    }\\n\\n    location /api/ {\\n        proxy_pass http://127.0.0.1:8080/;\\n        proxy_set_header Host \\$host;\\n        proxy_set_header X-Real-IP \\$remote_addr;\\n        proxy_set_header X-Forwarded-For \\$proxy_add_x_forwarded_for;\\n    }\\n}\\n' > /etc/nginx/sites-available/default\",
+              \"printf 'server {\\n    listen 80 default_server;\\n    listen [::]:80 default_server;\\n\\n    location / {\\n        proxy_pass http://127.0.0.1:5000;\\n        proxy_http_version 1.1;\\n        proxy_set_header Upgrade \\$http_upgrade;\\n        proxy_set_header Connection \\x27upgrade\\x27;\\n        proxy_set_header Host \\$host;\\n        proxy_set_header X-Real-IP \\$remote_addr;\\n        proxy_set_header X-Forwarded-For \\$proxy_add_x_forwarded_for;\\n        proxy_set_header X-Forwarded-Proto \\$scheme;\\n        proxy_buffering off;\\n        proxy_read_timeout 86400s;\\n    }\\n\\n    location /api/ {\\n        proxy_pass http://127.0.0.1:8080/;\\n        proxy_set_header Host \\$host;\\n        proxy_set_header X-Real-IP \\$remote_addr;\\n        proxy_set_header X-Forwarded-For \\$proxy_add_x_forwarded_for;\\n    }\\n}\\n' > /etc/nginx/sites-available/default\",
               \"nginx -t && systemctl restart nginx\",
               \"mkdir -p /opt/frontend /opt/frontend-venv\",
               \"aws s3 sync s3://${BUCKET}/frontend/ /opt/frontend/ --delete --exclude 'venv/*'\",
@@ -93,7 +93,7 @@ jobs:
             echo "Status ($i/40): $STATUS"
 
             if [ "$STATUS" = "Success" ]; then
-              echo "=== Streamlit Frontend Deployment Succeeded ==="
+              echo "=== Streamlit Deployment Succeeded ==="
               aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" --query "StandardOutputContent" --output text
               exit 0
             elif [ "$STATUS" = "Failed" ] || [ "$STATUS" = "TimedOut" ] || [ "$STATUS" = "Cancelled" ]; then
