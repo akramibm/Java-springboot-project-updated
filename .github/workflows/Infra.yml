@@ -1,44 +1,69 @@
-name: 01 - Infrastructure (Terraform)
+name: "01 - Infrastructure Provisioning (Terraform)"
 
 on:
-  workflow_dispatch:
   push:
-    branches: [main]
-    paths: ['terraform/**']
+    branches:
+      - main
+    paths:
+      - '3-tier-app-infra-verrababu/**'
+      - 'Module-Three-Tier/**'
+      - '.github/workflows/Infra.yml'
+  workflow_dispatch:
 
 permissions:
-  id-token: write
-  contents: read
+  id-token: write   # Mandatory for AWS OIDC STS token exchange
+  contents: read    # Required for actions/checkout
+  pull-requests: write
 
 jobs:
   terraform:
-    name: Provision & Auto-Sync Secrets
+    name: "Terraform Apply & Secrets Injection"
     runs-on: ubuntu-latest
+
     defaults:
       run:
-        working-directory: terraform
+        shell: bash
+        working-directory: ./3-tier-app-infra-verrababu/PRIMARY-US-east-1
 
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository with Submodules
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.GH_PAT || github.token }}
 
-      - name: Authenticate to AWS via OIDC
+      - name: Configure AWS Credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+          audience: sts.amazonaws.com
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.8.0
+          terraform_version: "1.7.5"
+          terraform_wrapper: false
 
-      - name: Terraform Init & Apply
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+
+      - name: Terraform Init
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-          TF_VAR_github_token: ${{ secrets.GH_PAT }}
-        run: |
-          terraform init
-          terraform validate
-          terraform apply -auto-approve \
-            -var="db_password=${{ secrets.RDS_PASSWORD }}"
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || github.token }}
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || github.token }}
+        run: terraform plan -out=tfplan -input=false
+
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || github.token }}
+        run: terraform apply -input=false -auto-approve tfplan
