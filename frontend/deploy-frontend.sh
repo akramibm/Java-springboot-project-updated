@@ -3,42 +3,39 @@ set -e
 
 mkdir -p /opt/frontend
 
-# Configure Nginx reverse proxy
 cat << 'NGINX' > /etc/nginx/sites-available/default
 server {
-listen 80 default_server;
-listen [::]:80 default_server;
+    listen 80 default_server;
+    listen [::]:80 default_server;
 
-location / {
-    proxy_pass http://127.0.0.1:5000;
-    proxy_set_header Host \$host;
-    proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-}
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
 
-location /api/ {
-    proxy_pass http://127.0.0.1:8080/;
-    proxy_set_header Host \$host;
-    proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-}
+    location /api/ {
+        proxy_pass http://127.0.0.1:8080/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
 }
 NGINX
 
 nginx -t
 systemctl restart nginx
 
-# Setup Python venv and dependencies
 cd /opt/frontend
 if [ ! -d venv ]; then
-python3 -m venv venv
+    python3 -m venv venv
 fi
 if [ -f requirements.txt ]; then
-./venv/bin/pip install --upgrade pip
-./venv/bin/pip install -r requirements.txt
+    ./venv/bin/pip install --upgrade pip
+    ./venv/bin/pip install -r requirements.txt
 fi
 
-# Configure frontend systemd unit
 cat << 'UNIT' > /etc/systemd/system/frontend.service
 [Unit]
 Description=Python Frontend Service
