@@ -56,22 +56,29 @@ jobs:
           BUCKET="${{ steps.get-bucket.outputs.bucket }}"
           REGION="${{ secrets.AWS_REGION || 'us-east-1' }}"
 
-          # Create the self-healing deployment script
           cat << 'SCRIPT' > deploy-backend.sh
           #!/bin/bash
           set -e
 
           mkdir -p /opt/backend /opt/config
-          chown -R ubuntu:ubuntu /opt/backend /opt/config
 
-          # Ensure Java is available
-          which java || (apt-get update -y && apt-get install -y openjdk-17-jdk)
+          # Ensure Java is present
+          if ! command -v java &> /dev/null; then
+            apt-get update -y && apt-get install -y openjdk-17-jdk
+          fi
 
           # Copy JAR from S3
           aws s3 cp "s3://__BUCKET__/backend/datastore-0.0.7.jar" /opt/backend/datastore-0.0.7.jar
-          chown ubuntu:ubuntu /opt/backend/datastore-0.0.7.jar
 
-          # Create or refresh systemd unit
+          # Fetch DB URL directly using the machine's IMDS/IAM Role
+          DB_URL=$(aws ssm get-parameter --name "/app/db_url" --region __REGION__ --query "Parameter.Value" --output text)
+          echo "SPRING_DATASOURCE_URL=${DB_URL}" > /opt/config/backend.env
+
+          # Fix permissions
+          chown -R ubuntu:ubuntu /opt/backend /opt/config
+          chmod 600 /opt/config/backend.env
+
+          # Create systemd unit using EnvironmentFile
           cat << 'UNIT' > /etc/systemd/system/backend.service
           [Unit]
           Description=Spring Boot Zero-Touch Backend
@@ -80,8 +87,8 @@ jobs:
           [Service]
           User=ubuntu
           WorkingDirectory=/opt/backend
-          ExecStartPre=/bin/bash -c 'aws ssm get-parameter --name "/app/db_url" --region __REGION__ --query "Parameter.Value" --output text > /opt/config/db_url.env'
-          ExecStart=/bin/bash -c 'export SPRING_DATASOURCE_URL=$(cat /opt/config/db_url.env); exec /usr/bin/java -Dspring.datasource.url=$SPRING_DATASOURCE_URL -jar /opt/backend/datastore-0.0.7.jar'
+          EnvironmentFile=/opt/config/backend.env
+          ExecStart=/usr/bin/java -jar /opt/backend/datastore-0.0.7.jar
           SuccessExitStatus=143
           Restart=always
           RestartSec=10
@@ -90,21 +97,31 @@ jobs:
           WantedBy=multi-user.target
           UNIT
 
-          sed -i "s|__BUCKET__|${BUCKET}|g" /etc/systemd/system/backend.service
-          sed -i "s|__REGION__|${REGION}|g" /etc/systemd/system/backend.service
-
           systemctl daemon-reload
           systemctl enable backend.service
-          systemctl restart backend.service
-          sleep 6
-          systemctl is-active backend.service
+
+          echo "Attempting to restart backend.service..."
+          if ! systemctl restart backend.service; then
+            echo "=== SYSTEMD FAILED: Service Status ==="
+            systemctl status backend.service --no-pager
+            echo "=== SYSTEMD FAILED: Journalctl Logs ==="
+            journalctl -u backend.service -n 100 --no-pager
+            exit 1
+          fi
+
+          sleep 5
+          if ! systemctl is-active --quiet backend.service; then
+            echo "=== Backend is not active after starting ==="
+            journalctl -u backend.service -n 100 --no-pager
+            exit 1
+          fi
+
+          echo "Backend service is active and running."
           SCRIPT
 
-          # Replace tokens with actual pipeline values
           sed -i "s|__BUCKET__|${BUCKET}|g" deploy-backend.sh
           sed -i "s|__REGION__|${REGION}|g" deploy-backend.sh
 
-          # Upload both script and JAR to S3
           aws s3 cp backend/target/datastore-0.0.7.jar "s3://${BUCKET}/backend/datastore-0.0.7.jar"
           aws s3 cp deploy-backend.sh "s3://${BUCKET}/scripts/deploy-backend.sh"
 
