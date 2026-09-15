@@ -138,55 +138,71 @@ st.markdown("""
     }
 
     /* Modern Streamlit Tab Pill Bar Styling */
-    .stTabs [data-baseweb="tab-list"] {
+    div[data-testid="stTabs"] {
+        background: transparent !important;
+        padding-top: 10px !important;
+        margin-bottom: 25px !important;
+    }
+
+    div[data-testid="stTabs"] > div:first-child,
+    div[data-testid="stTabs"] [data-baseweb="tab-list"] {
         gap: 12px !important;
         background: rgba(255, 255, 255, 0.05) !important;
         border-radius: 16px !important;
-        padding: 10px 14px !important;
+        padding: 8px 12px !important;
         border: 1px solid rgba(255, 255, 255, 0.12) !important;
     }
 
-    .stTabs [data-baseweb="tab-highlight"],
-    .stTabs [data-baseweb="tab-border"] {
-        display: none !important;
-    }
-
-    .stTabs [data-baseweb="tab"] {
-        background: rgba(255, 255, 255, 0.05) !important;
+    div[data-testid="stTabs"] button[data-baseweb="tab"] {
+        background: rgba(255, 255, 255, 0.06) !important;
         border-radius: 12px !important;
-        padding: 12px 24px !important;
+        padding: 10px 22px !important;
         border: none !important;
         transition: all 0.3s ease !important;
+        height: auto !important;
     }
 
-    .stTabs [data-baseweb="tab"] p,
-    .stTabs [data-baseweb="tab"] span,
-    .stTabs [data-baseweb="tab"] div {
-        color: #d1d5db !important;
+    div[data-testid="stTabs"] button[data-baseweb="tab"] p,
+    div[data-testid="stTabs"] button[data-baseweb="tab"] span,
+    div[data-testid="stTabs"] button[data-baseweb="tab"] div {
+        color: #e2e8f0 !important;
         font-weight: 600 !important;
         font-size: 15px !important;
+        opacity: 0.9 !important;
     }
 
-    .stTabs [data-baseweb="tab"]:hover {
-        background: rgba(255, 255, 255, 0.12) !important;
+    div[data-testid="stTabs"] button[data-baseweb="tab"]:hover {
+        background: rgba(255, 255, 255, 0.14) !important;
     }
 
-    .stTabs [data-baseweb="tab"]:hover p,
-    .stTabs [data-baseweb="tab"]:hover span,
-    .stTabs [data-baseweb="tab"]:hover div {
+    div[data-testid="stTabs"] button[data-baseweb="tab"]:hover p,
+    div[data-testid="stTabs"] button[data-baseweb="tab"]:hover span,
+    div[data-testid="stTabs"] button[data-baseweb="tab"]:hover div {
         color: #ffffff !important;
+        opacity: 1 !important;
     }
 
-    .stTabs [data-baseweb="tab"][aria-selected="true"] {
+    div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] {
         background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%) !important;
         box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4) !important;
     }
 
-    .stTabs [data-baseweb="tab"][aria-selected="true"] p,
-    .stTabs [data-baseweb="tab"][aria-selected="true"] span,
-    .stTabs [data-baseweb="tab"][aria-selected="true"] div {
+    div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] p,
+    div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] span,
+    div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] div {
         color: #ffffff !important;
         font-weight: 700 !important;
+        opacity: 1 !important;
+    }
+
+    /* Remove the default indicator line and borders */
+    div[data-testid="stTabs"] [data-baseweb="tab-highlight"],
+    div[data-testid="stTabs"] [data-baseweb="tab-border"],
+    div[data-testid="stTabs"] hr {
+        display: none !important;
+        opacity: 0 !important;
+        visibility: hidden !important;
+        height: 0px !important;
     }
 
     /* Metric cards - Dark theme */
