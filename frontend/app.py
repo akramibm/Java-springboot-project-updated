@@ -373,7 +373,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # API URL
-API_URL = os.environ.get("API_URL", "http://127.0.0.1:8080")
+API_URL = os.environ.get("API_URL", "http://127.0.0.1:8084")
 
 # Tabs with emojis and clear names
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
