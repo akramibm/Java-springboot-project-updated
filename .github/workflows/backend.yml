@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  id-token: write   # AWS OIDC STS token exchange
+  id-token: write
   contents: read
 
 jobs:
@@ -51,12 +51,66 @@ jobs:
           BUCKET=$(aws ssm get-parameter --name "/app/artifact_bucket" --query "Parameter.Value" --output text)
           echo "bucket=$BUCKET" >> $GITHUB_OUTPUT
 
-      - name: Upload JAR to S3
+      - name: Generate and Upload Deployment Script & Artifact
         run: |
-          aws s3 cp backend/target/datastore-0.0.7.jar s3://${{ steps.get-bucket.outputs.bucket }}/backend/datastore-0.0.7.jar
+          BUCKET="${{ steps.get-bucket.outputs.bucket }}"
+          REGION="${{ secrets.AWS_REGION || 'us-east-1' }}"
 
-      - name: Deploy via SSM Run Command
+          # Create the self-healing deployment script
+          cat << 'SCRIPT' > deploy-backend.sh
+          #!/bin/bash
+          set -e
+
+          mkdir -p /opt/backend /opt/config
+          chown -R ubuntu:ubuntu /opt/backend /opt/config
+
+          # Ensure Java is available
+          which java || (apt-get update -y && apt-get install -y openjdk-17-jdk)
+
+          # Copy JAR from S3
+          aws s3 cp "s3://__BUCKET__/backend/datastore-0.0.7.jar" /opt/backend/datastore-0.0.7.jar
+          chown ubuntu:ubuntu /opt/backend/datastore-0.0.7.jar
+
+          # Create or refresh systemd unit
+          cat << 'UNIT' > /etc/systemd/system/backend.service
+          [Unit]
+          Description=Spring Boot Zero-Touch Backend
+          After=network.target
+
+          [Service]
+          User=ubuntu
+          WorkingDirectory=/opt/backend
+          ExecStartPre=/bin/bash -c 'aws ssm get-parameter --name "/app/db_url" --region __REGION__ --query "Parameter.Value" --output text > /opt/config/db_url.env'
+          ExecStart=/bin/bash -c 'export SPRING_DATASOURCE_URL=$(cat /opt/config/db_url.env); exec /usr/bin/java -Dspring.datasource.url=$SPRING_DATASOURCE_URL -jar /opt/backend/datastore-0.0.7.jar'
+          SuccessExitStatus=143
+          Restart=always
+          RestartSec=10
+
+          [Install]
+          WantedBy=multi-user.target
+          UNIT
+
+          sed -i "s|__BUCKET__|${BUCKET}|g" /etc/systemd/system/backend.service
+          sed -i "s|__REGION__|${REGION}|g" /etc/systemd/system/backend.service
+
+          systemctl daemon-reload
+          systemctl enable backend.service
+          systemctl restart backend.service
+          sleep 6
+          systemctl is-active backend.service
+          SCRIPT
+
+          # Replace tokens with actual pipeline values
+          sed -i "s|__BUCKET__|${BUCKET}|g" deploy-backend.sh
+          sed -i "s|__REGION__|${REGION}|g" deploy-backend.sh
+
+          # Upload both script and JAR to S3
+          aws s3 cp backend/target/datastore-0.0.7.jar "s3://${BUCKET}/backend/datastore-0.0.7.jar"
+          aws s3 cp deploy-backend.sh "s3://${BUCKET}/scripts/deploy-backend.sh"
+
+      - name: Trigger SSM Execution
         run: |
+          BUCKET="${{ steps.get-bucket.outputs.bucket }}"
           INSTANCE_ID=$(aws ec2 describe-instances \
             --filters "Name=tag:Role,Values=three-tier-app" "Name=instance-state-name,Values=running" \
             --query "Reservations[0].Instances[0].InstanceId" \
@@ -67,45 +121,17 @@ jobs:
             exit 1
           fi
 
-          echo "Target Instance ID: $INSTANCE_ID"
+          echo "Target Instance: $INSTANCE_ID"
 
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --comment "Deploy Spring Boot Backend JAR & Configure Unit" \
-            --parameters 'commands=[
-              "mkdir -p /opt/backend /opt/config",
-              "chown -R ubuntu:ubuntu /opt/backend /opt/config",
-              "which java || (apt-get update -y && apt-get install -y openjdk-17-jdk)",
-              "aws s3 cp s3://${{ steps.get-bucket.outputs.bucket }}/backend/datastore-0.0.7.jar /opt/backend/datastore-0.0.7.jar",
-              "chown ubuntu:ubuntu /opt/backend/datastore-0.0.7.jar",
-              "cat << '\''SERVICE'\'' > /etc/systemd/system/backend.service
-[Unit]
-Description=Spring Boot Zero-Touch Backend
-After=network.target
-
-[Service]
-User=ubuntu
-WorkingDirectory=/opt/backend
-ExecStartPre=/bin/bash -c '\''aws ssm get-parameter --name \"/app/db_url\" --region ${{ secrets.AWS_REGION || '\''us-east-1'\'' }} --query \"Parameter.Value\" --output text > /opt/config/db_url.env'\''
-ExecStart=/bin/bash -c '\''export SPRING_DATASOURCE_URL=$(cat /opt/config/db_url.env); exec /usr/bin/java -Dspring.datasource.url=$SPRING_DATASOURCE_URL -jar /opt/backend/datastore-0.0.7.jar'\''
-SuccessExitStatus=143
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-SERVICE",
-              "systemctl daemon-reload",
-              "systemctl enable backend.service",
-              "systemctl restart backend.service",
-              "sleep 8",
-              "systemctl is-active --quiet backend.service || (journalctl -u backend.service -n 50 --no-pager && exit 1)"
-            ]' \
+            --comment "Execute backend deployment script" \
+            --parameters commands="[\"aws s3 cp s3://${BUCKET}/scripts/deploy-backend.sh /tmp/deploy-backend.sh\",\"bash /tmp/deploy-backend.sh\"]" \
             --query "Command.CommandId" \
             --output text)
 
-          echo "Command ID: $COMMAND_ID. Polling execution status..."
+          echo "Command ID: $COMMAND_ID. Polling execution..."
 
           for i in {1..40}; do
             STATUS=$(aws ssm get-command-invocation \
@@ -117,19 +143,18 @@ SERVICE",
             echo "Status ($i/40): $STATUS"
 
             if [ "$STATUS" = "Success" ]; then
-              echo "=== Backend Deployment Succeeded ==="
+              echo "=== Deployment Succeeded ==="
               aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" --query "StandardOutputContent" --output text
               exit 0
             elif [ "$STATUS" = "Failed" ] || [ "$STATUS" = "TimedOut" ] || [ "$STATUS" = "Cancelled" ]; then
-              echo "=== Command Failed! Standard Error Output ==="
+              echo "=== Standard Error ==="
               aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" --query "StandardErrorContent" --output text
-              echo "=== Standard Output Content ==="
+              echo "=== Standard Output ==="
               aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" --query "StandardOutputContent" --output text
               exit 1
             fi
-
             sleep 5
           done
 
-          echo "Error: SSM Command execution timed out after waiting."
+          echo "SSM execution timed out."
           exit 1
