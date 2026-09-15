@@ -44,95 +44,6 @@ jobs:
         run: |
           aws s3 sync frontend/ s3://${{ steps.get-bucket.outputs.bucket }}/frontend/ --delete --exclude "venv/*" --exclude "__pycache__/*"
 
-      - name: Build and Upload Deployment Runner Script
-        run: |
-          BUCKET="${{ steps.get-bucket.outputs.bucket }}"
-
-          cat << 'SCRIPT' > run-frontend-deploy.sh
-#!/bin/bash
-set -e
-
-# 1. Install prerequisites if missing
-if ! command -v python3 &>/dev/null || ! command -v pip3 &>/dev/null; then
-    apt-get update -y
-    apt-get install -y python3 python3-pip python3-venv nginx
-fi
-
-# 2. Write Nginx Reverse Proxy Configuration
-cat << 'NGINX_CONF' > /etc/nginx/sites-available/default
-server {
-    listen 80 default_server;
-    listen [::]:80 default_server;
-
-    location / {
-        proxy_pass http://127.0.0.1:5000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    }
-
-    location /api/ {
-        proxy_pass http://127.0.0.1:8080/;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    }
-}
-NGINX_CONF
-
-nginx -t
-systemctl restart nginx
-
-# 3. Prepare deployment directory and virtual environment
-mkdir -p /opt/frontend
-aws s3 sync s3://__BUCKET__/frontend/ /opt/frontend/ --delete --exclude "venv/*"
-
-VENV_DIR="/opt/frontend-venv"
-if [ ! -f "${VENV_DIR}/bin/pip" ]; then
-    rm -rf "$VENV_DIR"
-    python3 -m venv "$VENV_DIR"
-fi
-
-if [ -f /opt/frontend/requirements.txt ]; then
-    "${VENV_DIR}/bin/pip" install --upgrade pip
-    "${VENV_DIR}/bin/pip" install -r /opt/frontend/requirements.txt
-fi
-
-# 4. Create and start systemd unit
-cat << 'SERVICE_CONF' > /etc/systemd/system/frontend.service
-[Unit]
-Description=Python Frontend Service
-After=network.target
-
-[Service]
-User=ubuntu
-WorkingDirectory=/opt/frontend
-ExecStart=/opt/frontend-venv/bin/python app.py
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-SERVICE_CONF
-
-chown -R ubuntu:ubuntu /opt/frontend /opt/frontend-venv
-systemctl daemon-reload
-systemctl enable frontend.service
-systemctl restart frontend.service
-
-sleep 4
-if ! systemctl is-active --quiet frontend.service; then
-    echo "=== FRONTEND FAILED TO START: Journalctl Output ==="
-    journalctl -u frontend.service -n 50 --no-pager
-    exit 1
-fi
-
-echo "Frontend successfully deployed and active."
-SCRIPT
-
-          sed -i "s|__BUCKET__|${BUCKET}|g" run-frontend-deploy.sh
-          aws s3 cp run-frontend-deploy.sh "s3://${BUCKET}/scripts/run-frontend-deploy.sh"
-
       - name: Execute Deployment via SSM
         run: |
           BUCKET="${{ steps.get-bucket.outputs.bucket }}"
@@ -151,8 +62,21 @@ SCRIPT
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --comment "Zero-touch frontend deployment via YML" \
-            --parameters commands="[\"aws s3 cp s3://${BUCKET}/scripts/run-frontend-deploy.sh /tmp/run-frontend-deploy.sh\",\"bash /tmp/run-frontend-deploy.sh\"]" \
+            --comment "Zero-touch frontend deploy" \
+            --parameters "commands=[
+              \"which python3 &>/dev/null || (apt-get update -y && apt-get install -y python3 python3-pip python3-venv nginx)\",
+              \"printf 'server {\\n    listen 80 default_server;\\n    listen [::]:80 default_server;\\n\\n    location / {\\n        proxy_pass http://127.0.0.1:5000;\\n        proxy_set_header Host \\$host;\\n        proxy_set_header X-Real-IP \\$remote_addr;\\n    }\\n\\n    location /api/ {\\n        proxy_pass http://127.0.0.1:8080/;\\n        proxy_set_header Host \\$host;\\n        proxy_set_header X-Real-IP \\$remote_addr;\\n    }\\n}\\n' > /etc/nginx/sites-available/default\",
+              \"nginx -t && systemctl restart nginx\",
+              \"mkdir -p /opt/frontend /opt/frontend-venv\",
+              \"aws s3 sync s3://${BUCKET}/frontend/ /opt/frontend/ --delete --exclude 'venv/*'\",
+              \"if [ ! -f /opt/frontend-venv/bin/pip ]; then rm -rf /opt/frontend-venv && python3 -m venv /opt/frontend-venv; fi\",
+              \"if [ -f /opt/frontend/requirements.txt ]; then /opt/frontend-venv/bin/pip install --upgrade pip && /opt/frontend-venv/bin/pip install -r /opt/frontend/requirements.txt; fi\",
+              \"printf '[Unit]\\nDescription=Frontend Service\\nAfter=network.target\\n\\n[Service]\\nUser=ubuntu\\nWorkingDirectory=/opt/frontend\\nExecStart=/opt/frontend-venv/bin/python app.py\\nRestart=always\\nRestartSec=5\\n\\n[Install]\\nWantedBy=multi-user.target\\n' > /etc/systemd/system/frontend.service\",
+              \"chown -R ubuntu:ubuntu /opt/frontend /opt/frontend-venv\",
+              \"systemctl daemon-reload && systemctl enable frontend.service && systemctl restart frontend.service\",
+              \"sleep 4\",
+              \"systemctl is-active --quiet frontend.service || (journalctl -u frontend.service -n 50 --no-pager && exit 1)\"
+            ]" \
             --query "Command.CommandId" \
             --output text)
 
