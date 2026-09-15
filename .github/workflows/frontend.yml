@@ -40,57 +40,60 @@ jobs:
           BUCKET=$(aws ssm get-parameter --name "/app/artifact_bucket" --query "Parameter.Value" --output text)
           echo "bucket=$BUCKET" >> $GITHUB_OUTPUT
 
-      - name: Sync Frontend Code to S3
-        run: |
-          aws s3 sync frontend/ s3://${{ steps.get-bucket.outputs.bucket }}/frontend/ --delete
-
-      - name: Deploy Frontend & Configure Nginx via SSM
+      - name: Generate and Upload Frontend Code & Deployment Script
         run: |
           BUCKET="${{ steps.get-bucket.outputs.bucket }}"
-          INSTANCE_ID=$(aws ec2 describe-instances \
-            --filters "Name=tag:Role,Values=three-tier-app" "Name=instance-state-name,Values=running" \
-            --query "Reservations[0].Instances[0].InstanceId" \
-            --output text)
 
-          if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
-            echo "Error: No running EC2 instance found with tag Role=three-tier-app."
-            exit 1
-          fi
+          # Sync source files to S3
+          aws s3 sync frontend/ "s3://${BUCKET}/frontend/" --delete
 
-          echo "Target Instance ID: $INSTANCE_ID"
+          # Generate clean zero-touch deployment script
+          cat << 'SCRIPT' > deploy-frontend.sh
+          #!/bin/bash
+          set -e
 
-          COMMAND_ID=$(aws ssm send-command \
-            --instance-ids "$INSTANCE_ID" \
-            --document-name "AWS-RunShellScript" \
-            --comment "Zero-touch Nginx reverse proxy and Python frontend setup" \
-            --parameters commands="[
-              \"mkdir -p /opt/frontend\",
-              \"aws s3 sync s3://${BUCKET}/frontend/ /opt/frontend/ --delete\",
-              \"cat << 'NGINX' > /etc/nginx/sites-available/default
+          mkdir -p /opt/frontend
+
+          # Sync from S3
+          aws s3 sync "s3://__BUCKET__/frontend/" /opt/frontend/ --delete
+
+          # Configure Nginx reverse proxy
+          cat << 'NGINX' > /etc/nginx/sites-available/default
 server {
     listen 80 default_server;
     listen [::]:80 default_server;
 
     location / {
         proxy_pass http://127.0.0.1:5000;
-        proxy_set_header Host \\\$host;
-        proxy_set_header X-Real-IP \\\$remote_addr;
-        proxy_set_header X-Forwarded-For \\\$proxy_add_x_forwarded_for;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
 
     location /api/ {
         proxy_pass http://127.0.0.1:8080/;
-        proxy_set_header Host \\\$host;
-        proxy_set_header X-Real-IP \\\$remote_addr;
-        proxy_set_header X-Forwarded-For \\\$proxy_add_x_forwarded_for;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
 }
-NGINX\",
-              \"nginx -t && systemctl restart nginx\",
-              \"cd /opt/frontend\",
-              \"if [ ! -d venv ]; then python3 -m venv venv; fi\",
-              \"if [ -f requirements.txt ]; then ./venv/bin/pip install --upgrade pip && ./venv/bin/pip install -r requirements.txt; fi\",
-              \"cat << 'UNIT' > /etc/systemd/system/frontend.service
+NGINX
+
+          nginx -t
+          systemctl restart nginx
+
+          # Setup Python venv and dependencies
+          cd /opt/frontend
+          if [ ! -d venv ]; then
+            python3 -m venv venv
+          fi
+          if [ -f requirements.txt ]; then
+            ./venv/bin/pip install --upgrade pip
+            ./venv/bin/pip install -r requirements.txt
+          fi
+
+          # Configure systemd unit
+          cat << 'UNIT' > /etc/systemd/system/frontend.service
 [Unit]
 Description=Python Frontend Service
 After=network.target
@@ -104,14 +107,40 @@ RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
-UNIT\",
-              \"chown -R ubuntu:ubuntu /opt/frontend\",
-              \"systemctl daemon-reload\",
-              \"systemctl enable frontend.service\",
-              \"systemctl restart frontend.service\",
-              \"sleep 4\",
-              \"systemctl is-active --quiet frontend.service || (journalctl -u frontend.service -n 50 --no-pager && exit 1)\"
-            ]" \
+UNIT
+
+          chown -R ubuntu:ubuntu /opt/frontend
+          systemctl daemon-reload
+          systemctl enable frontend.service
+          systemctl restart frontend.service
+
+          sleep 4
+          systemctl is-active --quiet frontend.service || (journalctl -u frontend.service -n 50 --no-pager && exit 1)
+          SCRIPT
+
+          sed -i "s|__BUCKET__|${BUCKET}|g" deploy-frontend.sh
+          aws s3 cp deploy-frontend.sh "s3://${BUCKET}/scripts/deploy-frontend.sh"
+
+      - name: Execute Deployment via SSM
+        run: |
+          BUCKET="${{ steps.get-bucket.outputs.bucket }}"
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Role,Values=three-tier-app" "Name=instance-state-name,Values=running" \
+            --query "Reservations[0].Instances[0].InstanceId" \
+            --output text)
+
+          if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
+            echo "Error: No running EC2 instance found with tag Role=three-tier-app."
+            exit 1
+          fi
+
+          echo "Target Instance: $INSTANCE_ID"
+
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Execute frontend deployment script" \
+            --parameters commands="[\"aws s3 cp s3://${BUCKET}/scripts/deploy-frontend.sh /tmp/deploy-frontend.sh\",\"bash /tmp/deploy-frontend.sh\"]" \
             --query "Command.CommandId" \
             --output text)
 
