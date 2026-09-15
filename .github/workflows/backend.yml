@@ -72,7 +72,11 @@ jobs:
 
           # Fetch DB URL directly using the machine's IMDS/IAM Role
           DB_URL=$(aws ssm get-parameter --name "/app/db_url" --region __REGION__ --query "Parameter.Value" --output text)
-          echo "SPRING_DATASOURCE_URL=${DB_URL}" > /opt/config/backend.env
+          cat << 'ENV' > /opt/config/backend.env
+SPRING_DATASOURCE_URL=${DB_URL}
+SPRING_DATASOURCE_USERNAME=admin
+SPRING_DATASOURCE_PASSWORD=SuperSecretPass123!
+ENV
 
           # Fix permissions
           chown -R ubuntu:ubuntu /opt/backend /opt/config
