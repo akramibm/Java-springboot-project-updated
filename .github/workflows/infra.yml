@@ -6,17 +6,16 @@ on:
       - main
     paths:
       - 'terraform-infra/**'
-      - '.github/workflows/Infra.yml'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 permissions:
-  id-token: write   # Required for AWS OIDC
-  contents: read    # Required to checkout repository
-  secrets: write    # Required for Terraform GitHub provider to inject secrets
+  id-token: write
+  contents: read
 
 jobs:
   terraform:
-    name: "Terraform Apply & Secrets Injection"
+    name: "Terraform Apply"
     runs-on: ubuntu-latest
 
     defaults:
@@ -42,17 +41,11 @@ jobs:
           terraform_wrapper: false
 
       - name: Terraform Init
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: terraform init
 
       - name: Terraform Plan
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: terraform plan -out=tfplan -input=false
 
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: terraform apply -input=false -auto-approve tfplan
