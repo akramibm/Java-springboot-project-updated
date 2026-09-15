@@ -6,11 +6,11 @@ on:
     types:
       - completed
   push:
-    # branches:
-    #   - main
-    # paths:
-    #   - 'frontend/**'
-    #   - '.github/workflows/frontend.yml'
+    branches:
+      - main
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend.yml'
   workflow_dispatch:
 
 permissions:
