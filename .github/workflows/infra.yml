@@ -1,12 +1,12 @@
 name: "01 - Infrastructure Provisioning (Terraform)"
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'terraform-infra/**'
-      - '.github/workflows/**'
+  # push:
+  #   branches:
+  #     - main
+  #   paths:
+  #     - 'terraform-infra/**'
+  #     - '.github/workflows/**'
   workflow_dispatch:
 
 permissions:
