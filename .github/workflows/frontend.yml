@@ -62,21 +62,21 @@ jobs:
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --comment "Zero-touch Streamlit frontend and Nginx setup" \
+            --comment "Zero-touch Streamlit websocket and Nginx configuration" \
             --parameters "commands=[
               \"which python3 &>/dev/null || (apt-get update -y && apt-get install -y python3 python3-pip python3-venv nginx)\",
-              \"printf 'server {\\n    listen 80 default_server;\\n    listen [::]:80 default_server;\\n\\n    location / {\\n        proxy_pass http://127.0.0.1:5000;\\n        proxy_http_version 1.1;\\n        proxy_set_header Upgrade \\$http_upgrade;\\n        proxy_set_header Connection \\\"upgrade\\\";\\n        proxy_set_header Host \\$host;\\n        proxy_set_header X-Real-IP \\$remote_addr;\\n        proxy_set_header X-Forwarded-For \\$proxy_add_x_forwarded_for;\\n        proxy_read_timeout 86400;\\n    }\\n\\n    location /_stcore/stream {\\n        proxy_pass http://127.0.0.1:5000/_stcore/stream;\\n        proxy_http_version 1.1;\\n        proxy_set_header Upgrade \\$http_upgrade;\\n        proxy_set_header Connection \\\"upgrade\\\";\\n        proxy_set_header Host \\$host;\\n        proxy_read_timeout 86400;\\n    }\\n\\n    location /api/ {\\n        proxy_pass http://127.0.0.1:8080/;\\n        proxy_set_header Host \\$host;\\n        proxy_set_header X-Real-IP \\$remote_addr;\\n        proxy_set_header X-Forwarded-For \\$proxy_add_x_forwarded_for;\\n    }\\n}\\n' > /etc/nginx/sites-available/default\",
+              \"printf 'map \\$http_upgrade \\$connection_upgrade {\\n    default upgrade;\\n    \\\\'\\\\\\' close;\\n}\\n\\nserver {\\n    listen 80 default_server;\\n    listen [::]:80 default_server;\\n\\n    location / {\\n        proxy_pass http://127.0.0.1:5000;\\n        proxy_http_version 1.1;\\n        proxy_set_header Upgrade \\$http_upgrade;\\n        proxy_set_header Connection \\$connection_upgrade;\\n        proxy_set_header Host \\$host;\\n        proxy_set_header X-Real-IP \\$remote_addr;\\n        proxy_set_header X-Forwarded-For \\$proxy_add_x_forwarded_for;\\n        proxy_set_header X-Forwarded-Proto \\$scheme;\\n        proxy_buffering off;\\n        proxy_read_timeout 86400s;\\n        proxy_send_timeout 86400s;\\n    }\\n\\n    location ^~ /_stcore/stream {\\n        proxy_pass http://127.0.0.1:5000/_stcore/stream;\\n        proxy_http_version 1.1;\\n        proxy_set_header Upgrade \\$http_upgrade;\\n        proxy_set_header Connection \\$connection_upgrade;\\n        proxy_set_header Host \\$host;\\n        proxy_buffering off;\\n        proxy_read_timeout 86400s;\\n        proxy_send_timeout 86400s;\\n    }\\n\\n    location /api/ {\\n        proxy_pass http://127.0.0.1:8080/;\\n        proxy_set_header Host \\$host;\\n        proxy_set_header X-Real-IP \\$remote_addr;\\n        proxy_set_header X-Forwarded-For \\$proxy_add_x_forwarded_for;\\n    }\\n}\\n' > /etc/nginx/sites-available/default\",
               \"nginx -t && systemctl restart nginx\",
               \"mkdir -p /opt/frontend /opt/frontend-venv\",
               \"aws s3 sync s3://${BUCKET}/frontend/ /opt/frontend/ --delete --exclude 'venv/*'\",
               \"if [ ! -f /opt/frontend-venv/bin/pip ]; then rm -rf /opt/frontend-venv && python3 -m venv /opt/frontend-venv; fi\",
               \"if [ -f /opt/frontend/requirements.txt ]; then /opt/frontend-venv/bin/pip install --upgrade pip && /opt/frontend-venv/bin/pip install -r /opt/frontend/requirements.txt; fi\",
-              \"printf '[Unit]\\nDescription=Streamlit Frontend Service\\nAfter=network.target\\n\\n[Service]\\nUser=ubuntu\\nWorkingDirectory=/opt/frontend\\nExecStart=/opt/frontend-venv/bin/streamlit run app.py --server.port 5000 --server.address 127.0.0.1 --server.headless true --browser.serverAddress 18.215.117.88\\nRestart=always\\nRestartSec=5\\n\\n[Install]\\nWantedBy=multi-user.target\\n' > /etc/systemd/system/frontend.service\",
+              \"printf '[Unit]\\nDescription=Streamlit Frontend Service\\nAfter=network.target\\n\\n[Service]\\nUser=ubuntu\\nWorkingDirectory=/opt/frontend\\nExecStart=/opt/frontend-venv/bin/streamlit run app.py --server.port 5000 --server.address 127.0.0.1 --server.headless true --server.enableCORS false --server.enableXsrf false\\nRestart=always\\nRestartSec=5\\n\\n[Install]\\nWantedBy=multi-user.target\\n' > /etc/systemd/system/frontend.service\",
               \"chown -R ubuntu:ubuntu /opt/frontend /opt/frontend-venv\",
               \"systemctl daemon-reload && systemctl enable frontend.service && systemctl restart frontend.service\",
-              \"sleep 6\",
+              \"sleep 5\",
               \"systemctl is-active --quiet frontend.service || (journalctl -u frontend.service -n 50 --no-pager && exit 1)\",
-              \"ss -tulpn | grep 5000 || (echo 'Port 5000 not active' && exit 1)\"
+              \"ss -tulpn | grep 5000 || (echo 'Port 5000 not listening' && exit 1)\"
             ]" \
             --query "Command.CommandId" \
             --output text)
