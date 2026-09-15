@@ -137,32 +137,56 @@ st.markdown("""
         font-size: 16px !important;
     }
 
-    /* Tab styling - Dark theme */
+    /* Modern Streamlit Tab Pill Bar Styling */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 12px;
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 15px;
-        padding: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        gap: 12px !important;
+        background: rgba(255, 255, 255, 0.05) !important;
+        border-radius: 16px !important;
+        padding: 10px 14px !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
     }
-    
+
+    .stTabs [data-baseweb="tab-highlight"],
+    .stTabs [data-baseweb="tab-border"] {
+        display: none !important;
+    }
+
     .stTabs [data-baseweb="tab"] {
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 12px;
-        color: #e0e0e0;
-        font-weight: 600;
-        padding: 14px 28px;
-        font-size: 16px;
-        transition: all 0.3s ease;
+        background: rgba(255, 255, 255, 0.05) !important;
+        border-radius: 12px !important;
+        padding: 12px 24px !important;
+        border: none !important;
+        transition: all 0.3s ease !important;
     }
-    
+
+    .stTabs [data-baseweb="tab"] p,
+    .stTabs [data-baseweb="tab"] span,
+    .stTabs [data-baseweb="tab"] div {
+        color: #d1d5db !important;
+        font-weight: 600 !important;
+        font-size: 15px !important;
+    }
+
     .stTabs [data-baseweb="tab"]:hover {
-        background: rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.12) !important;
     }
-    
-    .stTabs [aria-selected="true"] {
-        background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
-        color: white;
+
+    .stTabs [data-baseweb="tab"]:hover p,
+    .stTabs [data-baseweb="tab"]:hover span,
+    .stTabs [data-baseweb="tab"]:hover div {
+        color: #ffffff !important;
+    }
+
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {
+        background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%) !important;
+        box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4) !important;
+    }
+
+    .stTabs [data-baseweb="tab"][aria-selected="true"] p,
+    .stTabs [data-baseweb="tab"][aria-selected="true"] span,
+    .stTabs [data-baseweb="tab"][aria-selected="true"] div {
+        color: #ffffff !important;
+        font-weight: 700 !important;
     }
 
     /* Metric cards - Dark theme */
@@ -241,7 +265,7 @@ st.markdown("""
         color: white !important;
         font-weight: 600 !important;
     }
-    
+
     /* Success/Error message styling */
     .stSuccess {
         background: rgba(34, 197, 94, 0.15);
@@ -349,7 +373,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # API URL
-API_URL = os.environ.get("API_URL", "http://172.31.92.104:8084")
+API_URL = os.environ.get("API_URL", "http://127.0.0.1:8080")
 
 # Tabs with emojis and clear names
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -839,7 +863,7 @@ with tab5:
 
 # Footer
 st.markdown("---")
-st.markdown("""
+st.markdown(f"""
 <div style="text-align: center; margin-top: 50px; padding: 30px; 
             background: rgba(255, 255, 255, 0.05); border-radius: 15px;
             border: 1px solid rgba(255, 255, 255, 0.1);">
@@ -852,7 +876,7 @@ st.markdown("""
         📅 {current_time}
     </p>
     <p style="color: rgba(255,255,255,0.4); font-size: 12px; margin-top: 10px;">
-        Version 2.0 | © 2025 All Rights Reserved
+        Version 2.0 | © 2026 All Rights Reserved
     </p>
 </div>
-""".replace("{current_time}", current_time), unsafe_allow_html=True)
+""", unsafe_allow_html=True)
