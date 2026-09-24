@@ -1,8 +1,8 @@
 name: Build and Deploy Frontend
 
 on:
-  #push:
-    #branches: [ "main" ]
+  # push:
+  #   branches: [ "main" ]
   workflow_dispatch:
 
 env:
@@ -11,7 +11,7 @@ env:
   ECR_REPO: frontend
   IMAGE_TAG: ${{ github.run_number }}
   CONTAINER_NAME: frontend
-  CONTAINER_PORT: "80"
+  CONTAINER_PORT: "8501"
   HOST_PORT: "80"
 
 jobs:
@@ -29,9 +29,14 @@ jobs:
       - name: Build and Push Docker Image
         working-directory: ./frontend
         run: |
+          set -e
           IMAGE_URI="${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO }}:${{ env.IMAGE_TAG }}"
-          docker build -t $IMAGE_URI .
-          docker push $IMAGE_URI
+          echo "Building image: $IMAGE_URI"
+          docker build -t "$IMAGE_URI" .
+          
+          echo "Pushing image: $IMAGE_URI"
+          docker push "$IMAGE_URI"
+          
           echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
 
       - name: Run Frontend Container
