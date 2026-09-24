@@ -1,0 +1,99 @@
+name: Build and Deploy Frontend
+
+on:
+  #push:
+    #branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  AWS_ACCOUNT_ID: "832667740061"
+  ECR_REPO: frontend
+  IMAGE_TAG: ${{ github.run_number }}
+  CONTAINER_NAME: frontend
+  CONTAINER_PORT: "80"
+  HOST_PORT: "80"
+
+jobs:
+  build-and-push:
+    name: Build & Push Frontend to ECR
+    runs-on: ubuntu-latest
+    outputs:
+      image_uri: ${{ steps.set-image.outputs.image_uri }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set Image URI Output
+        id: set-image
+        run: |
+          echo "image_uri=${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO }}:${{ env.IMAGE_TAG }}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/github-actions-ecr-role
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.set-image.outputs.image_uri }}
+
+  deploy:
+    name: Deploy Frontend on EC2
+    needs: build-and-push
+    runs-on: self-hosted
+    steps:
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/github-actions-ecr-role
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Deploy Frontend Container
+        run: |
+          IMAGE_URI="${{ needs.build-and-push.outputs.image_uri }}"
+
+          docker stop ${{ env.CONTAINER_NAME }} || true
+          docker rm ${{ env.CONTAINER_NAME }} || true
+
+          docker pull $IMAGE_URI
+
+          docker run -d \
+            --name ${{ env.CONTAINER_NAME }} \
+            --restart always \
+            -p ${{ env.HOST_PORT }}:${{ env.CONTAINER_PORT }} \
+            $IMAGE_URI
+
+      - name: Verify Container Status
+        run: |
+          sleep 5
+          if [ "$(docker inspect -f '{{.State.Running}}' ${{ env.CONTAINER_NAME }})" = "true" ]; then
+            echo "Frontend container is running successfully!"
+            exit 0
+          else
+            echo "Frontend container failed to start:"
+            docker logs --tail 50 ${{ env.CONTAINER_NAME }}
+            exit 1
+          fi
+
+      - name: Prune Old Images
+        if: always()
+        run: |
+          docker image prune -f || true
