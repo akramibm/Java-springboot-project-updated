@@ -1,12 +1,12 @@
 name: Build and Deploy Backend
 
 on:
- # push:
-   # branches: [ "main" ]
+  #push:
+    #branches: [ "main" ]
   workflow_dispatch:
 
 permissions:
-  id-token: write   # Required for AWS OIDC authentication
+  id-token: write
   contents: read
 
 env:
@@ -24,7 +24,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       image_uri: ${{ steps.set-image.outputs.image_uri }}
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -41,6 +40,12 @@ jobs:
           java-version: '17'
           cache: 'maven'
 
+      - name: Debug OIDC Token Claims
+        run: |
+          TOKEN=$(curl -sLS "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" -H "User-Agent: actions/bash" -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" | jq -r '.value')
+          echo "Decoded OIDC Token Payload:"
+          echo "$TOKEN" | cut -d. -f2 | base64 --decode 2>/dev/null | jq .
+
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -48,7 +53,6 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Log in to Amazon ECR
-        id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build JAR with Maven
@@ -66,10 +70,7 @@ jobs:
   deploy:
     name: Deploy to EC2
     needs: build-and-push
-    # If running a self-hosted runner directly on your EC2 instance:
     runs-on: self-hosted
-    
-    # (If using GitHub-hosted runners with SSH instead, swap runner to ubuntu-latest and use SSH action)
     steps:
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -84,14 +85,11 @@ jobs:
         run: |
           IMAGE_URI="${{ needs.build-and-push.outputs.image_uri }}"
 
-          # Stop and remove existing container
           docker stop ${{ env.CONTAINER_NAME }} || true
           docker rm ${{ env.CONTAINER_NAME }} || true
 
-          # Pull the newly pushed image
           docker pull $IMAGE_URI
 
-          # Run new container
           docker run -d \
             --name ${{ env.CONTAINER_NAME }} \
             --restart always \
@@ -118,7 +116,7 @@ jobs:
           docker logs --tail 50 ${{ env.CONTAINER_NAME }}
           exit 1
 
-      - name: Clean up unused Docker layers
+      - name: Prune Old Images
         if: always()
         run: |
           docker image prune -f || true
